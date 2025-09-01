@@ -1,43 +1,43 @@
 // netlify/functions/voice.js
-// OpenAI TTS function, locked to "verse" voice
+// ElevenLabs TTS function for Donna (locked to your chosen voice)
 
-const OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech";
+const ELEVEN_API_URL = "https://api.elevenlabs.io/v1/text-to-speech/";
+const VOICE_ID = "vsvwsnYb6CY1kI3oTv5U"; // your chosen female voice ID
 
 exports.handler = async function (event) {
   try {
-    if (event.httpMethod === "OPTIONS") {
-      return { statusCode: 204, headers: cors(), body: "" };
-    }
     if (event.httpMethod !== "POST") {
-      return json(405, { error: "Method not allowed" });
+      return { statusCode: 405, body: "Method not allowed" };
     }
 
     const { input } = JSON.parse(event.body || "{}");
-    if (!input || !input.trim()) return json(400, { error: "Missing 'input' text." });
+    if (!input || !input.trim()) {
+      return { statusCode: 400, body: "Missing 'input' text." };
+    }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return json(500, { error: "OPENAI_API_KEY not set." });
+    const apiKey = process.env.ELEVEN_API_KEY;
+    if (!apiKey) return { statusCode: 500, body: "ELEVEN_API_KEY not set." };
 
-    console.log("Donna TTS request → model=gpt-4o-mini-tts, voice=verse, input:", input);
-
-    const resp = await fetch(OPENAI_TTS_URL, {
+    // Request speech from ElevenLabs
+    const resp = await fetch(`${ELEVEN_API_URL}${VOICE_ID}`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        "xi-api-key": apiKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini-tts",
-        voice: "copper",   // 🔒 force female voice
-        input,
-        format: "mp3",
+        text: input,
+        model_id: "eleven_monolingual_v1", // English TTS model
+        voice_settings: {
+          stability: 0.55,
+          similarity_boost: 0.75,
+        },
       }),
     });
 
     if (!resp.ok) {
-      const errText = await safeText(resp);
-      console.error("OpenAI TTS error:", resp.status, errText);
-      return json(resp.status, { error: `OpenAI: ${errText || resp.statusText}` });
+      const errText = await resp.text();
+      return { statusCode: resp.status, body: errText };
     }
 
     const buf = await resp.arrayBuffer();
@@ -46,33 +46,13 @@ exports.handler = async function (event) {
     return {
       statusCode: 200,
       headers: {
-        ...cors(),
         "Content-Type": "audio/mpeg",
         "Cache-Control": "no-store",
       },
       body: b64,
       isBase64Encoded: true,
     };
-  } catch (e) {
-    console.error("TTS function crashed:", e);
-    return json(500, { error: e.message || String(e) });
+  } catch (err) {
+    return { statusCode: 500, body: err.message };
   }
 };
-
-function cors() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  };
-}
-function json(status, obj) {
-  return {
-    statusCode: status,
-    headers: { ...cors(), "Content-Type": "application/json" },
-    body: JSON.stringify(obj),
-  };
-}
-async function safeText(res) {
-  try { return await res.text(); } catch { return ""; }
-}
