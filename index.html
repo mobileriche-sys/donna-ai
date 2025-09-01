@@ -1,1 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Donna AI — Live Assistant</title>
+  <style>
+    :root { --orange:#FF7F00; --red:#FF0000; --ink:#0f172a; --muted:#64748b; --bg:#f8fafc; }
+    body { margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; background:var(--bg); color:var(--ink); }
+    .wrap { max-width: 860px; margin: 40px auto; padding: 0 16px; text-align:center; }
+    h1 { font-size: 28px; margin: 8px 0 6px; }
+    p.sub { color: var(--muted); margin: 0 0 24px; }
+    .btnbar { display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin:22px 0; }
+    .btn { border:0; border-radius:12px; padding:14px 18px; font-weight:700; color:#fff; cursor:pointer; min-width:220px; }
+    .btn.orange { background: var(--orange); }
+    .btn.red { background: var(--red); }
+    .chat-modal { position: fixed; inset:0; background: rgba(2,6,23,.65); display:none; align-items:center; justify-content:center; padding:16px; }
+    .chat-card { width:min(880px,100%); background:#fff; border-radius:18px; box-shadow:0 10px 30px rgba(2,6,23,.25); overflow:hidden; display:grid; grid-template-rows:auto 1fr auto; }
+    .chat-head { padding:14px 16px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; }
+    .chat-head .title { font-weight:800; }
+    .chat-body { padding:16px; height:60vh; overflow:auto; background:#f9fafb; }
+    .msg { max-width: 80%; padding:10px 14px; border-radius:14px; margin:8px 0; line-height:1.35; text-align:left; }
+    .m-user { background:#e2e8f0; margin-left:auto; border-bottom-right-radius:4px; }
+    .m-ai { background:#fff; border:1px solid #e5e7eb; border-bottom-left-radius:4px; }
+    .chat-foot { padding:12px; display:flex; gap:8px; border-top:1px solid #e2e8f0; background:#fff; }
+    .in { flex:1; padding:12px; border-radius:12px; border:1px solid #cbd5e1; outline:none; }
+    .mic { border:1px solid #cbd5e1; background:#fff; border-radius:12px; padding:0 12px; font-weight:700; cursor:pointer; }
+    .send { background:var(--orange); color:#fff; border:0; border-radius:12px; padding:0 16px; font-weight:800; cursor:pointer; }
+    .badge { font-size:12px; color:var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Donna AI</h1>
+    <p class="sub">Your live MLGS + AI sales assistant. No login required.</p>
+
+    <div class="btnbar">
+      <button id="openDonna" class="btn orange">Chat with Donna AI</button>
+      <button id="openDonnaVoice" class="btn red">Voice: Talk to Donna</button>
+    </div>
+
+    <div class="badge">Tip: Add this page anywhere via an iframe or link.</div>
+  </div>
+
+  <div id="modal" class="chat-modal" role="dialog" aria-modal="true">
+    <div class="chat-card">
+      <div class="chat-head">
+        <div class="title">Donna AI — Live Assistant</div>
+        <div>
+          <button id="toggleVoice" class="mic" title="Toggle mic">Mic</button>
+          <button id="close" class="mic">Close</button>
+        </div>
+      </div>
+      <div id="log" class="chat-body"></div>
+      <div class="chat-foot">
+        <input id="msg" class="in" placeholder="Type your question…" />
+        <button id="send" class="send">Send</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const el = (id)=>document.getElementById(id);
+  const modal = el("modal"), log = el("log"), msg = el("msg");
+  const supportsTTS = "speechSynthesis" in window;
+  const supportsSTT = "webkitSpeechRecognition" in window;
+
+  let micOn = false;
+  let recog;
+  if (supportsSTT) {
+    const R = window.webkitSpeechRecognition;
+    recog = new R();
+    recog.continuous = false;
+    recog.interimResults = false;
+    recog.lang = "en-US";
+    recog.onresult = (e)=>{
+      const text = e.results[0][0].transcript;
+      msg.value = text;
+      send();
+    };
+  }
+
+  function say(text) {
+    if (!supportsTTS) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.0; u.pitch = 1.0; u.lang = "en-US";
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  }
+
+  function addBubble(text, who="ai") {
+    const div = document.createElement("div");
+    div.className = "msg " + (who === "user" ? "m-user" : "m-ai");
+    div.textContent = text;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function callDonna(content) {
+    const res = await fetch("/.netlify/functions/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [{ role:"user", content }] })
+    });
+    const data = await res.json();
+    if (data?.error) throw new Error(data.error);
+    return data.text || "";
+  }
+
+  async function send() {
+    const text = msg.value.trim();
+    if (!text) return;
+    addBubble(text, "user");
+    msg.value = "";
+    try {
+      const reply = await callDonna(text);
+      addBubble(reply, "ai");
+      if (supportsTTS && (micOn || openedFromVoice)) say(reply);
+    } catch (e) {
+      addBubble("Sorry — I hit an error. Please try again.", "ai");
+      console.error(e);
+    }
+  }
+
+  let openedFromVoice = false;
+
+  function openChat({voice=false} = {}) {
+    openedFromVoice = voice;
+    modal.style.display = "flex";
+    addBubble("Hi, I’m Donna. Ready to get your 100 leads a day? Ask me anything about MLGS + AI.");
+    if (supportsTTS && voice) say("Hi, I’m Donna. Ready to get your one hundred leads a day? Ask me anything.");
+    msg.focus();
+    if (supportsSTT && voice) { try { recog.start(); } catch(e){} }
+  }
+
+  el("openDonna").onclick = ()=> openChat({voice:false});
+  el("openDonnaVoice").onclick = ()=> { micOn = true; openChat({voice:true}); };
+  el("send").onclick = send;
+  msg.addEventListener("keydown", e => { if (e.key==="Enter") send(); });
+
+  el("close").onclick = ()=> { modal.style.display = "none"; window.speechSynthesis?.cancel(); };
+  el("toggleVoice").onclick = ()=>{
+    micOn = !micOn;
+    el("toggleVoice").style.fontWeight = micOn ? "900" : "700";
+    if (micOn && supportsSTT) { try { recog.start(); } catch(e){} }
+  };
+</script>
+</body>
+</html>
 
