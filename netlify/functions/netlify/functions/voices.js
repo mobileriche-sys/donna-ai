@@ -1,23 +1,29 @@
 // netlify/functions/voice.js
-// ElevenLabs TTS for Donna — locked voice, with optional ?voiceId= override
+// ElevenLabs TTS for Donna — supports GET (quick test) and POST (normal use)
 
 const ELEVEN_API_URL = "https://api.elevenlabs.io/v1/text-to-speech/";
-const DEFAULT_VOICE_ID = "Nhs7eitvQWFTQBsf0yiT"; // ← your chosen voice
+const DEFAULT_VOICE_ID = "Nhs7eitvQWFTQBsf0yiT"; // your chosen voice
 
 exports.handler = async function (event) {
   try {
     const apiKey = process.env.ELEVEN_API_KEY;
     if (!apiKey) return { statusCode: 500, body: "ELEVEN_API_KEY not set in Netlify" };
 
-    // Support GET (quick browser test) and POST (normal use)
     const method = event.httpMethod;
+    const qs = event.queryStringParameters || {};
+
+    // Accept GET and POST only
     if (method !== "GET" && method !== "POST") {
       return { statusCode: 405, body: "Method not allowed" };
     }
 
-    // Text to speak
+    // Text to speak:
+    // - GET: use default or ?text=...
+    // - POST: require { input }
     let input = "Hello, this is Donna speaking from ElevenLabs.";
-    if (method === "POST") {
+    if (method === "GET") {
+      if (qs.text && String(qs.text).trim()) input = String(qs.text);
+    } else {
       const data = JSON.parse(event.body || "{}");
       if (!data.input || !String(data.input).trim()) {
         return { statusCode: 400, body: "Missing 'input' text." };
@@ -25,8 +31,7 @@ exports.handler = async function (event) {
       input = String(data.input);
     }
 
-    // Voice selection: use ?voiceId=... if provided, else default
-    const qs = event.queryStringParameters || {};
+    // Voice: allow override with ?voiceId=... for quick audition
     const voiceId = (qs.voiceId && qs.voiceId.trim()) || DEFAULT_VOICE_ID;
 
     const resp = await fetch(`${ELEVEN_API_URL}${voiceId}`, {
@@ -52,7 +57,11 @@ exports.handler = async function (event) {
 
     return {
       statusCode: 200,
-      headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" },
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Cache-Control": "no-store",
+        "X-Donna-Version": "GET-enabled" // <-- sanity marker
+      },
       body: b64,
       isBase64Encoded: true,
     };
