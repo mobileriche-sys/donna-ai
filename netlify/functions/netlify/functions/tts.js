@@ -1,5 +1,5 @@
 // netlify/functions/tts.js
-// Netlify Function: returns MP3 audio from OpenAI TTS ("verse" voice)
+// Netlify Function: returns MP3 audio from OpenAI TTS, locked to "verse" voice
 
 const OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech";
 
@@ -12,7 +12,7 @@ exports.handler = async function (event) {
       return json(405, { error: "Method not allowed" });
     }
 
-    const { input, voice = "verse" } = JSON.parse(event.body || "{}");
+    const { input } = JSON.parse(event.body || "{}");
     if (!input || !input.trim()) return json(400, { error: "Missing 'input' text." });
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -26,9 +26,9 @@ exports.handler = async function (event) {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini-tts",
-        voice,          // fixed "verse"
-        input,          // text to speak
-        format: "mp3",  // return MP3
+        voice: "verse",     // 🔒 always use "verse"
+        input,              // text to speak
+        format: "mp3",
       }),
     });
 
