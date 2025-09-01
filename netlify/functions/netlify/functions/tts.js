@@ -1,47 +1,74 @@
-// Netlify Function to stream Donna's voice using OpenAI TTS
-export async function handler(event) {
+// netlify/functions/tts.js
+// Netlify Function: returns MP3 audio from OpenAI TTS ("verse" voice)
+
+const OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech";
+
+exports.handler = async function (event) {
   try {
-    if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: "POST only" };
+    if (event.httpMethod === "OPTIONS") {
+      return { statusCode: 204, headers: cors(), body: "" };
     }
+    if (event.httpMethod !== "POST") {
+      return json(405, { error: "Method not allowed" });
+    }
+
+    const { input, voice = "verse" } = JSON.parse(event.body || "{}");
+    if (!input || !input.trim()) return json(400, { error: "Missing 'input' text." });
 
     const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return { statusCode: 500, body: "Missing OPENAI_API_KEY" };
-    }
+    if (!apiKey) return json(500, { error: "OPENAI_API_KEY not set." });
 
-    const { text, voice = "verse", speed = 0.96 } = JSON.parse(event.body || "{}");
-    if (!text) {
-      return { statusCode: 400, body: "Missing text input" };
-    }
-
-    const resp = await fetch("https://api.openai.com/v1/audio/speech", {
+    const resp = await fetch(OPENAI_TTS_URL, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "tts-1",
-        voice,     // fixed to "verse" unless you override
-        input: text,
-        speed
-      })
+        model: "gpt-4o-mini-tts",
+        voice,          // fixed "verse"
+        input,          // text to speak
+        format: "mp3",  // return MP3
+      }),
     });
 
     if (!resp.ok) {
-      const errText = await resp.text();
-      return { statusCode: 500, body: `OpenAI TTS error: ${errText}` };
+      const errText = await safeText(resp);
+      return json(resp.status, { error: `OpenAI: ${errText || resp.statusText}` });
     }
 
-    const arrayBuffer = await resp.arrayBuffer();
+    const buf = await resp.arrayBuffer();
+    const b64 = Buffer.from(buf).toString("base64");
+
     return {
       statusCode: 200,
-      headers: { "Content-Type": "audio/mpeg" },
-      body: Buffer.from(arrayBuffer).toString("base64"),
-      isBase64Encoded: true
+      headers: {
+        ...cors(),
+        "Content-Type": "audio/mpeg",
+        "Cache-Control": "no-store",
+      },
+      body: b64,
+      isBase64Encoded: true,
     };
   } catch (e) {
-    return { statusCode: 500, body: `Server error: ${e.message}` };
+    return json(500, { error: e.message || String(e) });
   }
+};
+
+function cors() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+}
+function json(status, obj) {
+  return {
+    statusCode: status,
+    headers: { ...cors(), "Content-Type": "application/json" },
+    body: JSON.stringify(obj),
+  };
+}
+async function safeText(res) {
+  try { return await res.text(); } catch { return ""; }
 }
