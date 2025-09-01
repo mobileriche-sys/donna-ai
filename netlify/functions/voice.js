@@ -16,7 +16,7 @@ exports.handler = async function (event) {
     }
 
     const apiKey = process.env.ELEVEN_API_KEY;
-    if (!apiKey) return { statusCode: 500, body: "ELEVEN_API_KEY not set." };
+    if (!apiKey) return { statusCode: 500, body: "sk_b6dccf3373bcc74f392fc53e232e28b01c5bf6be9417f161" };
 
     // Request speech from ElevenLabs
     const resp = await fetch(`${ELEVEN_API_URL}${VOICE_ID}`, {
