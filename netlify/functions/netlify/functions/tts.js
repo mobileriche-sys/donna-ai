@@ -18,6 +18,9 @@ exports.handler = async function (event) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) return json(500, { error: "OPENAI_API_KEY not set." });
 
+    // Log to Netlify function logs
+    console.log("Donna TTS request → model=gpt-4o-mini-tts, voice=verse, input:", input);
+
     const resp = await fetch(OPENAI_TTS_URL, {
       method: "POST",
       headers: {
@@ -26,14 +29,15 @@ exports.handler = async function (event) {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini-tts",
-        voice: "verse",     // 🔒 always use "verse"
-        input,              // text to speak
+        voice: "verse",   // 🔒 always verse
+        input,            // text to speak
         format: "mp3",
       }),
     });
 
     if (!resp.ok) {
       const errText = await safeText(resp);
+      console.error("OpenAI TTS error:", resp.status, errText);
       return json(resp.status, { error: `OpenAI: ${errText || resp.statusText}` });
     }
 
@@ -51,6 +55,7 @@ exports.handler = async function (event) {
       isBase64Encoded: true,
     };
   } catch (e) {
+    console.error("TTS function crashed:", e);
     return json(500, { error: e.message || String(e) });
   }
 };
@@ -72,3 +77,4 @@ function json(status, obj) {
 async function safeText(res) {
   try { return await res.text(); } catch { return ""; }
 }
+
